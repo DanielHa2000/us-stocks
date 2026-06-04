@@ -365,7 +365,7 @@
         ];
 
         async function fetchQuote(symbol) {
-            const yahooUrl = 'https://query1.finance.yahoo.com/v8/finance/chart/' + symbol + '?interval=1m&range=1d';
+            const yahooUrl = 'https://query1.finance.yahoo.com/v8/finance/chart/' + symbol + '?interval=1m&range=1d&includePrePost=true';
             async function tryFetch(url) {
                 const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
                 if (!res.ok) throw new Error('HTTP ' + res.status);
@@ -388,9 +388,24 @@
                 const meta = result.meta;
                 const quote = result.indicators.quote[0];
                 const prevClose = meta.previousClose || meta.chartPreviousClose || meta.regularMarketPrice;
-                const current = meta.regularMarketPrice || (quote.close && quote.close[quote.close.length - 1]) || prevClose;
-                const change = current - prevClose;
-                const changePct = (change / prevClose) * 100;
+                const regularPrice = meta.regularMarketPrice || (quote.close && quote.close[quote.close.length - 1]) || prevClose;
+                const regularChange = regularPrice - prevClose;
+                const regularChangePct = (regularChange / prevClose) * 100;
+                
+                // 盘后数据
+                const postPrice = meta.postMarketPrice;
+                const postChange = meta.postMarketChange;
+                const postChangePct = meta.postMarketChangePercent;
+                const hasPostData = postPrice !== null && postPrice !== undefined && postPrice !== 0;
+                
+                // 根据市场状态选择价格
+                const marketStatus = getMarketStatus();
+                const isPostMarket = marketStatus.text === '盘后' || marketStatus.text === '已收盘';
+                const current = (isPostMarket && hasPostData) ? postPrice : regularPrice;
+                const change = (isPostMarket && hasPostData) ? postChange : regularChange;
+                const changePct = (isPostMarket && hasPostData) ? postChangePct : regularChangePct;
+                const isPost = isPostMarket && hasPostData;
+                
                 let high = meta.regularMarketDayHigh;
                 let low = meta.regularMarketDayLow;
                 if (!high && quote.high) high = Math.max(...quote.high.filter(x => x !== null));
@@ -404,6 +419,8 @@
                 return {
                     symbol: meta.symbol || symbol, name: meta.shortName || meta.longName || symbol,
                     price: current, prevClose, change, changePct,
+                    regularPrice, regularChange, regularChangePct,
+                    postPrice, postChange, postChangePct, isPost,
                     high: high || current, low: low || current,
                     volume: meta.regularMarketVolume || 0, proxy: usedProxy, series
                 };
@@ -412,7 +429,7 @@
 
         async function fetchChartRange(symbol, range) {
             const interval = range === '1d' ? '1m' : range === '5d' ? '5m' : '1d';
-            const yahooUrl = 'https://query1.finance.yahoo.com/v8/finance/chart/' + symbol + '?interval=' + interval + '&range=' + range;
+            const yahooUrl = 'https://query1.finance.yahoo.com/v8/finance/chart/' + symbol + '?interval=' + interval + '&range=' + range + '&includePrePost=true';
             async function tryFetch(url) {
                 const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
                 if (!res.ok) throw new Error('HTTP ' + res.status);
@@ -494,11 +511,12 @@
             const cls = isUp ? 'up' : 'down';
             const sign = isUp ? '+' : '';
             const proxyTag = data.proxy ? ' <span style="color:#f9e2af;font-size:9px">(代)</span>' : '';
+            const postTag = data.isPost ? ' <span style="color:#f9e2af;font-size:9px">(盘后)</span>' : '';
 
             nameEl.textContent = data.name + proxyTag;
             nameEl.dataset.name = data.name;
             nameEl.className = 'stock-name';
-            priceEl.textContent = data.price.toFixed(2);
+            priceEl.textContent = data.price.toFixed(2) + postTag;
             priceEl.className = 'stock-price ' + cls;
             changeEl.textContent = sign + data.change.toFixed(2) + ' (' + sign + data.changePct.toFixed(2) + '%)';
             changeEl.className = 'stock-change ' + cls;
