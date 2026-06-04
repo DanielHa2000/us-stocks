@@ -1,0 +1,790 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>美股实时报价</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html, body {
+            height: 100%;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #1e1e2e;
+            color: #cdd6f4;
+            overflow: hidden;
+        }
+        body { padding: 4px; display: flex; flex-direction: column; }
+        .top-bar {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 4px;
+            flex-shrink: 0;
+        }
+        .top-bar h1 { font-size: 16px; color: #89b4fa; margin: 0; white-space: nowrap; }
+        .top-bar input {
+            flex: 1;
+            padding: 4px 8px;
+            border: 1px solid #313244;
+            border-radius: 4px;
+            background: #181825;
+            color: #cdd6f4;
+            font-size: 12px;
+            text-transform: uppercase;
+            min-width: 0;
+        }
+        .top-bar input::placeholder { color: #6c7086; font-size: 11px; }
+        .top-bar button {
+            padding: 4px 10px;
+            border: none;
+            border-radius: 4px;
+            background: #a6e3a1;
+            color: #1e1e2e;
+            font-size: 12px;
+            cursor: pointer;
+            white-space: nowrap;
+            font-weight: 600;
+        }
+        .top-bar button:hover { background: #b4f9b4; }
+        .top-bar button.secondary {
+            background: #181825;
+            border: 1px solid #313244;
+            color: #cdd6f4;
+            font-weight: normal;
+        }
+        .top-bar button.secondary:hover { background: #313244; }
+        .total-pnl {
+            font-size: 12px;
+            font-weight: bold;
+            white-space: nowrap;
+            padding: 2px 8px;
+            border-radius: 4px;
+            background: #181825;
+            border: 1px solid #313244;
+        }
+        .total-pnl.up { color: #a6e3a1; border-color: #a6e3a1; }
+        .total-pnl.down { color: #f38ba8; border-color: #f38ba8; }
+        .holding-modal {
+            display: none;
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            background: rgba(0,0,0,0.7);
+            z-index: 9999;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+        .holding-modal.active { display: flex; }
+        .holding-modal-content {
+            background: #181825;
+            border: 1px solid #313244;
+            border-radius: 10px;
+            padding: 16px;
+            max-width: 400px;
+            width: 100%;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+        .holding-modal-content h3 {
+            color: #cdd6f4;
+            margin-bottom: 12px;
+            font-size: 16px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .holding-modal-content h3 button {
+            background: none;
+            border: none;
+            color: #6c7086;
+            font-size: 20px;
+            cursor: pointer;
+        }
+        .holding-modal-content h3 button:hover { color: #f38ba8; }
+        .holding-row {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+        .holding-row input {
+            flex: 1;
+            padding: 6px 8px;
+            border: 1px solid #313244;
+            border-radius: 4px;
+            background: #11111b;
+            color: #cdd6f4;
+            font-size: 12px;
+        }
+        .holding-row input::placeholder { color: #6c7086; }
+        .holding-row .sym-input { flex: 0.8; }
+        .holding-row .num-input { flex: 1; }
+        .holding-row .btn-del {
+            background: none;
+            border: none;
+            color: #6c7086;
+            font-size: 16px;
+            cursor: pointer;
+            padding: 0 4px;
+        }
+        .holding-row .btn-del:hover { color: #f38ba8; }
+        .holding-modal .btn-add {
+            width: 100%;
+            padding: 6px;
+            border: 1px dashed #313244;
+            border-radius: 4px;
+            background: #11111b;
+            color: #a6adc8;
+            cursor: pointer;
+            font-size: 12px;
+            margin-bottom: 12px;
+        }
+        .holding-modal .btn-add:hover { border-color: #89b4fa; color: #cdd6f4; }
+        .holding-modal .btn-save {
+            width: 100%;
+            padding: 8px;
+            border: none;
+            border-radius: 4px;
+            background: #a6e3a1;
+            color: #1e1e2e;
+            font-size: 14px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        .holding-modal .btn-save:hover { background: #b4f9b4; }
+        .holding-modal .rate-info {
+            font-size: 11px;
+            color: #a6adc8;
+            text-align: center;
+            margin-bottom: 12px;
+        }
+        .holding-pnl {
+            font-size: 9px;
+            font-weight: 600;
+            white-space: nowrap;
+            margin-top: 1px;
+            line-height: 1.1;
+        }
+        .holding-pnl.up { color: #a6e3a1; }
+        .holding-pnl.down { color: #f38ba8; }
+        .market-status { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 3px; }
+        .market-open { background: #a6e3a1; }
+        .market-closed { background: #f38ba8; }
+        .market-pre { background: #f9e2af; }
+        .watchlist {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            overflow-y: auto;
+        }
+        .stock-row {
+            display: flex;
+            gap: 2px;
+            height: calc((100vh - 40px) / 3 - 2px);
+            min-height: 60px;
+        }
+        .stock-card {
+            width: 240px;
+            flex-shrink: 0;
+            background: #181825;
+            border: 1px solid #313244;
+            border-radius: 6px;
+            padding: 4px 8px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .stock-card:hover { border-color: #89b4fa; }
+        .stock-info { display: flex; flex-direction: column; gap: 0px; }
+        .stock-symbol { font-size: 14px; font-weight: bold; color: #f0f6fc; }
+        .stock-name { font-size: 10px; color: #a6adc8; white-space: nowrap; }
+        .stock-price { font-size: 14px; font-weight: bold; font-variant-numeric: tabular-nums; }
+        .stock-change { font-size: 10px; font-weight: 600; font-variant-numeric: tabular-nums; }
+        .up { color: #a6e3a1; }
+        .down { color: #f38ba8; }
+        .remove-btn {
+            background: none;
+            border: none;
+            color: #6c7086;
+            font-size: 14px;
+            cursor: pointer;
+            padding: 0;
+            line-height: 1;
+            margin-left: 4px;
+        }
+        .remove-btn:hover { color: #f38ba8; }
+        .stock-chart-box {
+            flex: 1;
+            background: #181825;
+            border: 1px solid #313244;
+            border-radius: 6px;
+            padding: 2px 4px;
+            display: flex;
+            flex-direction: column;
+            gap: 1px;
+            overflow: hidden;
+        }
+        .stock-chart-box:hover { border-color: #89b4fa; }
+        .chart-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            height: 18px;
+            flex-shrink: 0;
+        }
+        .chart-header .range-btns {
+            display: flex;
+            gap: 3px;
+        }
+        .chart-header .range-btns button {
+            padding: 1px 5px;
+            border: 1px solid #313244;
+            border-radius: 2px;
+            background: #11111b;
+            color: #a6adc8;
+            cursor: pointer;
+            font-size: 9px;
+            line-height: 1.2;
+        }
+        .chart-header .range-btns button.active {
+            background: #a6e3a1;
+            border-color: #a6e3a1;
+            color: #1e1e2e;
+            font-weight: 600;
+        }
+        .chart-header .range-btns button:hover:not(.active) {
+            border-color: #89b4fa;
+            color: #cdd6f4;
+        }
+        .chart-header .chart-info {
+            font-size: 9px;
+            color: #a6adc8;
+            white-space: nowrap;
+        }
+        .chart-canvas {
+            width: 100%;
+            flex: 1;
+            border-radius: 2px;
+            background: #11111b;
+            min-height: 0;
+        }
+        .loading { opacity: 0.6; }
+        .error { color: #f38ba8; font-size: 10px; }
+        .hint { text-align: center; color: #6c7086; font-size: 12px; }
+        @media (max-width: 700px) {
+            .stock-row { flex-direction: column; height: auto; min-height: 120px; }
+            .stock-card { width: 100%; }
+        }
+    </style>
+</head>
+<body>
+    <div class="top-bar">
+        <h1>📈</h1>
+        <input type="text" id="symbolInput" placeholder="输入代码如 AAPL" maxlength="10">
+        <button onclick="addStock()">添加</button>
+        <span id="marketStatus" style="font-size:11px;color:#a6adc8;white-space:nowrap;">● 检测中</span>
+        <span id="totalPnL" class="total-pnl" style="display:none">总盈亏：HK$0</span>
+        <button onclick="openHoldings()" class="secondary">💰</button>
+        <button onclick="refreshAll()" class="secondary">🔄</button>
+        <button onclick="toggleAutoRefresh()" id="autoBtn" class="secondary">⏸</button>
+    </div>
+    <div class="watchlist" id="watchlist"></div>
+    <div class="hint" id="hint" style="display:none">输入股票代码，点击添加</div>
+
+    <!-- 持仓设置 -->
+    <div class="holding-modal" id="holdingModal" onclick="closeHoldings(event)">
+        <div class="holding-modal-content" onclick="event.stopPropagation()">
+            <h3>💰 持仓设置 <button onclick="closeHoldings()">×</button></h3>
+            <div class="rate-info">汇率：1 USD = 7.8 HKD（可修改）</div>
+            <input type="number" id="rateInput" value="7.8" step="0.01" style="width:100%;padding:4px 8px;border:1px solid #313244;border-radius:4px;background:#11111b;color:#cdd6f4;font-size:12px;margin-bottom:8px;">
+            <div id="holdingList"></div>
+            <button class="btn-add" onclick="addHoldingRow()">+ 添加股票</button>
+            <button class="btn-save" onclick="saveHoldings()">保存</button>
+        </div>
+    </div>
+
+    <script>
+        const DEFAULT_SYMBOLS = ['MU', 'INTC', 'PLTR'];
+        let watchlist = JSON.parse(localStorage.getItem('usStockWatchlist')) || [...DEFAULT_SYMBOLS];
+        let autoRefresh = true;
+        let refreshInterval = null;
+        let lastRefreshTimes = {};
+        let chartDataCache = {};
+        let chartRanges = {};
+        let holdings = JSON.parse(localStorage.getItem('usStockHoldings')) || {};
+        let hkdRate = parseFloat(localStorage.getItem('usStockRate')) || 7.8;
+
+        function formatAgo(ts) {
+            if (!ts) return '从未';
+            const s = Math.floor((Date.now() - ts) / 1000);
+            if (s < 5) return '刚刚';
+            if (s < 60) return s + 's';
+            const m = Math.floor(s / 60);
+            if (m < 60) return m + 'm';
+            return Math.floor(m / 60) + 'h';
+        }
+
+        function updateAgoTimes() {
+            for (const symbol of watchlist) {
+                const card = document.getElementById('card-' + symbol);
+                if (!card) continue;
+                const nameEl = card.querySelector('.stock-name');
+                if (nameEl) {
+                    const base = nameEl.dataset.name || '';
+                    nameEl.textContent = base + ' · ' + formatAgo(lastRefreshTimes[symbol]);
+                }
+            }
+        }
+        setInterval(updateAgoTimes, 1000);
+
+        function getMarketStatus() {
+            const now = new Date();
+            const etHour = now.getUTCHours() - 4;
+            const etMinute = now.getUTCMinutes();
+            const etDay = now.getUTCDay();
+            const etTime = etHour * 60 + etMinute;
+            if (etDay === 0 || etDay === 6) return { text: '休市', class: 'market-closed', open: false };
+            if (etTime >= 570 && etTime < 960) return { text: '交易中', class: 'market-open', open: true };
+            if (etTime >= 240 && etTime < 570) return { text: '盘前', class: 'market-pre', open: true };
+            if (etTime >= 960 && etTime < 1200) return { text: '盘后', class: 'market-pre', open: true };
+            return { text: '已收盘', class: 'market-closed', open: false };
+        }
+
+        function updateMarketStatus() {
+            const status = getMarketStatus();
+            document.getElementById('marketStatus').innerHTML = '<span class="market-status ' + status.class + '"></span>' + status.text;
+        }
+
+        const PROXIES = [
+            url => 'https://api.allorigins.win/raw?url=' + encodeURIComponent(url),
+            url => 'https://api.allorigins.win/get?url=' + encodeURIComponent(url),
+            url => 'https://proxy.corsfix.com/?url=' + encodeURIComponent(url),
+            url => 'https://corsproxy.io/?url=' + encodeURIComponent(url),
+        ];
+
+        async function fetchQuote(symbol) {
+            const yahooUrl = 'https://query1.finance.yahoo.com/v8/finance/chart/' + symbol + '?interval=1m&range=1d';
+            async function tryFetch(url) {
+                const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
+                if (!res.ok) throw new Error('HTTP ' + res.status);
+                return await res.json();
+            }
+            let data = null, usedProxy = false, lastErr = '';
+            try { data = await tryFetch(yahooUrl); }
+            catch (e) {
+                lastErr = '直连失败: ' + e.message;
+                for (const proxyFn of PROXIES) {
+                    try { data = await tryFetch(proxyFn(yahooUrl)); usedProxy = true; lastErr = ''; break; }
+                    catch (e2) { lastErr = '代理失败: ' + e2.message; }
+                }
+            }
+            if (!data) return { symbol, error: '无法获取数据（' + lastErr + '），请稍后重试' };
+            try {
+                if (data.chart && data.chart.error) throw new Error('Yahoo: ' + (data.chart.error.description || data.chart.error.code));
+                if (!data.chart || !data.chart.result || !data.chart.result[0]) throw new Error('Yahoo 返回空数据');
+                const result = data.chart.result[0];
+                const meta = result.meta;
+                const quote = result.indicators.quote[0];
+                const prevClose = meta.previousClose || meta.chartPreviousClose || meta.regularMarketPrice;
+                const current = meta.regularMarketPrice || (quote.close && quote.close[quote.close.length - 1]) || prevClose;
+                const change = current - prevClose;
+                const changePct = (change / prevClose) * 100;
+                let high = meta.regularMarketDayHigh;
+                let low = meta.regularMarketDayLow;
+                if (!high && quote.high) high = Math.max(...quote.high.filter(x => x !== null));
+                if (!low && quote.low) low = Math.min(...quote.low.filter(x => x !== null));
+                const timestamps = result.timestamp || [];
+                const closes = quote.close || [];
+                const series = [];
+                for (let i = 0; i < timestamps.length; i++) {
+                    if (closes[i] !== null && closes[i] !== undefined) series.push({ t: timestamps[i] * 1000, p: closes[i] });
+                }
+                return {
+                    symbol: meta.symbol || symbol, name: meta.shortName || meta.longName || symbol,
+                    price: current, prevClose, change, changePct,
+                    high: high || current, low: low || current,
+                    volume: meta.regularMarketVolume || 0, proxy: usedProxy, series
+                };
+            } catch (e) { return { symbol, error: e.message }; }
+        }
+
+        async function fetchChartRange(symbol, range) {
+            const interval = range === '1d' ? '1m' : range === '5d' ? '5m' : '1d';
+            const yahooUrl = 'https://query1.finance.yahoo.com/v8/finance/chart/' + symbol + '?interval=' + interval + '&range=' + range;
+            async function tryFetch(url) {
+                const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
+                if (!res.ok) throw new Error('HTTP ' + res.status);
+                return await res.json();
+            }
+            let data = null;
+            for (const proxyFn of [u => u, ...PROXIES]) {
+                try { data = await tryFetch(proxyFn(yahooUrl)); break; }
+                catch (e) {}
+            }
+            if (!data || !data.chart || !data.chart.result || !data.chart.result[0]) return null;
+            const result = data.chart.result[0];
+            const timestamps = result.timestamp || [];
+            const closes = result.indicators.quote[0].close || [];
+            const series = [];
+            for (let i = 0; i < timestamps.length; i++) {
+                if (closes[i] !== null && closes[i] !== undefined) series.push({ t: timestamps[i] * 1000, p: closes[i] });
+            }
+            return series;
+        }
+
+        function renderRow(symbol) {
+            if (document.getElementById('row-' + symbol)) return;
+            const range = chartRanges[symbol] || '1d';
+            const div = document.createElement('div');
+            div.className = 'stock-row';
+            div.id = 'row-' + symbol;
+            div.innerHTML = `
+                <div class="stock-card" id="card-${symbol}">
+                    <div class="stock-info" style="flex:1;min-width:0;">
+                        <div style="display:flex;align-items:center;gap:4px;">
+                            <div class="stock-symbol">${symbol}</div>
+                            <button class="remove-btn" onclick="removeStock('${symbol}')">×</button>
+                        </div>
+                        <div class="stock-name" data-name="">加载中...</div>
+                    </div>
+                    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:0;flex-shrink:0;">
+                        <div class="stock-price" style="line-height:1.2">-</div>
+                        <div class="stock-change" style="line-height:1.2">-</div>
+                        <div class="holding-pnl" id="pnl-${symbol}" style="line-height:1.2"></div>
+                    </div>
+                </div>
+                <div class="stock-chart-box">
+                    <div class="chart-header">
+                        <div class="range-btns">
+                            <button onclick="changeRange('${symbol}', '1d')" id="btn-${symbol}-1d" class="${range === '1d' ? 'active' : ''}">1日</button>
+                            <button onclick="changeRange('${symbol}', '5d')" id="btn-${symbol}-5d" class="${range === '5d' ? 'active' : ''}">5日</button>
+                            <button onclick="changeRange('${symbol}', '1mo')" id="btn-${symbol}-1mo" class="${range === '1mo' ? 'active' : ''}">1月</button>
+                            <button onclick="changeRange('${symbol}', '3mo')" id="btn-${symbol}-3mo" class="${range === '3mo' ? 'active' : ''}">3月</button>
+                            <button onclick="changeRange('${symbol}', '6mo')" id="btn-${symbol}-6mo" class="${range === '6mo' ? 'active' : ''}">6月</button>
+                            <button onclick="changeRange('${symbol}', '1y')" id="btn-${symbol}-1y" class="${range === '1y' ? 'active' : ''}">1年</button>
+                        </div>
+                        <div class="chart-info" id="chart-info-${symbol}">加载中</div>
+                    </div>
+                    <canvas class="chart-canvas" id="chart-${symbol}"></canvas>
+                </div>
+            `;
+            document.getElementById('watchlist').appendChild(div);
+        }
+
+        async function updateStock(symbol) {
+            renderRow(symbol);
+            const card = document.getElementById('card-' + symbol);
+            card.classList.add('loading');
+            const data = await fetchQuote(symbol);
+            card.classList.remove('loading');
+
+            const nameEl = card.querySelector('.stock-name');
+            const priceEl = card.querySelector('.stock-price');
+            const changeEl = card.querySelector('.stock-change');
+
+            if (data.error) {
+                nameEl.textContent = '失败'; nameEl.className = 'stock-name error';
+                priceEl.textContent = '-'; changeEl.textContent = data.error; changeEl.className = 'stock-change error';
+                return;
+            }
+
+            const isUp = data.change >= 0;
+            const cls = isUp ? 'up' : 'down';
+            const sign = isUp ? '+' : '';
+            const proxyTag = data.proxy ? ' <span style="color:#f9e2af;font-size:9px">(代)</span>' : '';
+
+            nameEl.textContent = data.name + proxyTag;
+            nameEl.dataset.name = data.name;
+            nameEl.className = 'stock-name';
+            priceEl.textContent = data.price.toFixed(2);
+            priceEl.className = 'stock-price ' + cls;
+            changeEl.textContent = sign + data.change.toFixed(2) + ' (' + sign + data.changePct.toFixed(2) + '%)';
+            changeEl.className = 'stock-change ' + cls;
+
+            // 计算持仓盈亏
+            updateHoldingPnL(symbol, data.price);
+
+            lastRefreshTimes[symbol] = Date.now();
+            if (data.series && data.series.length > 0) {
+                chartDataCache[symbol] = data.series;
+                drawChart(symbol, data.series);
+            }
+            updateChartInfo(symbol, data.high, data.low, data.volume);
+        }
+
+        function drawChart(symbol, series) {
+            if (!series || series.length < 2) return;
+            const canvas = document.getElementById('chart-' + symbol);
+            if (!canvas) return;
+            const ctx = canvas.getContext('2d');
+            const rect = canvas.getBoundingClientRect();
+            canvas.width = rect.width * 2;
+            canvas.height = rect.height * 2;
+            ctx.scale(2, 2);
+            const w = rect.width, h = rect.height;
+            ctx.clearRect(0, 0, w, h);
+            const prices = series.map(d => d.p);
+            const min = Math.min(...prices), max = Math.max(...prices);
+            const range = max - min || 1;
+            const isUp = prices[prices.length - 1] >= prices[0];
+            const color = isUp ? '#a6e3a1' : '#f38ba8';
+            const padTop = 4, padBottom = 14, padLeft = 30, padRight = 6;
+            const cw = w - padLeft - padRight, ch = h - padTop - padBottom;
+            // 格线
+            ctx.strokeStyle = '#313244'; ctx.lineWidth = 0.5;
+            for (let i = 0; i <= 2; i++) {
+                const y = padTop + (ch / 2) * i;
+                ctx.beginPath(); ctx.moveTo(padLeft, y); ctx.lineTo(w - padRight, y); ctx.stroke();
+                const priceLabel = (max - (range / 2) * i).toFixed(2);
+                ctx.fillStyle = '#a6adc8'; ctx.font = '9px sans-serif'; ctx.textAlign = 'right';
+                ctx.fillText(priceLabel, padLeft - 3, y + 3);
+            }
+            // 价格线
+            ctx.strokeStyle = color; ctx.lineWidth = 1.5;
+            ctx.beginPath();
+            for (let i = 0; i < series.length; i++) {
+                const x = padLeft + (i / (series.length - 1)) * cw;
+                const y = padTop + ch - ((prices[i] - min) / range) * ch;
+                if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+            }
+            ctx.stroke();
+            // 填充渐变
+            const grad = ctx.createLinearGradient(0, padTop, 0, padTop + ch);
+            grad.addColorStop(0, isUp ? 'rgba(166,227,161,0.12)' : 'rgba(243,139,168,0.12)');
+            grad.addColorStop(1, 'rgba(0,0,0,0)'); ctx.fillStyle = grad;
+            ctx.beginPath();
+            for (let i = 0; i < series.length; i++) {
+                const x = padLeft + (i / (series.length - 1)) * cw;
+                const y = padTop + ch - ((prices[i] - min) / range) * ch;
+                if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+            }
+            ctx.lineTo(padLeft + cw, padTop + ch); ctx.lineTo(padLeft, padTop + ch); ctx.closePath(); ctx.fill();
+            // 时间标签
+            ctx.fillStyle = '#a6adc8'; ctx.font = '9px sans-serif';
+            const startD = new Date(series[0].t);
+            const endD = new Date(series[series.length - 1].t);
+            const startLabel = (startD.getMonth() + 1) + '/' + startD.getDate() + ' ' + startD.getHours() + ':' + String(startD.getMinutes()).padStart(2, '0');
+            const endLabel = (endD.getMonth() + 1) + '/' + endD.getDate() + ' ' + endD.getHours() + ':' + String(endD.getMinutes()).padStart(2, '0');
+            ctx.textAlign = 'left'; ctx.fillText(startLabel, padLeft, h - 2);
+            ctx.textAlign = 'right'; ctx.fillText(endLabel, w - padRight, h - 2);
+            // 最高最低
+            const maxIdx = prices.indexOf(max), minIdx = prices.indexOf(min);
+            const maxX = padLeft + (maxIdx / (series.length - 1)) * cw;
+            const maxY = padTop + ch - ((max - min) / range) * ch;
+            const minX = padLeft + (minIdx / (series.length - 1)) * cw;
+            const minY = padTop + ch;
+            ctx.fillStyle = '#cdd6f4'; ctx.font = 'bold 9px sans-serif'; ctx.textAlign = 'center';
+            ctx.fillText('高' + max.toFixed(2), maxX, maxY - 4);
+            ctx.fillText('低' + min.toFixed(2), minX, minY + 10);
+        }
+
+        function updateChartInfo(symbol, high, low, volume) {
+            const infoEl = document.getElementById('chart-info-' + symbol);
+            if (infoEl) infoEl.textContent = '高:' + (high ? high.toFixed(2) : '-') + ' 低:' + (low ? low.toFixed(2) : '-') + ' 量:' + formatVol(volume);
+        }
+
+        function formatVol(v) {
+            if (!v) return '-';
+            if (v >= 1e9) return (v / 1e9).toFixed(2) + 'B';
+            if (v >= 1e6) return (v / 1e6).toFixed(2) + 'M';
+            if (v >= 1e3) return (v / 1e3).toFixed(1) + 'K';
+            return v.toString();
+        }
+
+        async function changeRange(symbol, range) {
+            chartRanges[symbol] = range;
+            document.querySelectorAll('.range-btns button[id^="btn-' + symbol + '"]').forEach(b => b.classList.remove('active'));
+            document.getElementById('btn-' + symbol + '-' + range).classList.add('active');
+            const series = await fetchChartRange(symbol, range);
+            if (series && series.length > 0) {
+                chartDataCache[symbol] = series;
+                drawChart(symbol, series);
+            }
+        }
+
+        function addStock() {
+            const input = document.getElementById('symbolInput');
+            const sym = input.value.trim().toUpperCase();
+            if (!sym) return;
+            if (watchlist.includes(sym)) { alert(sym + ' 已在列表中'); input.value = ''; return; }
+            watchlist.push(sym); saveWatchlist(); updateStock(sym); input.value = '';
+            document.getElementById('hint').style.display = 'none';
+        }
+
+        function removeStock(symbol) {
+            watchlist = watchlist.filter(s => s !== symbol);
+            saveWatchlist();
+            const row = document.getElementById('row-' + symbol);
+            if (row) row.remove();
+            if (watchlist.length === 0) document.getElementById('hint').style.display = 'block';
+        }
+
+        function saveWatchlist() { localStorage.setItem('usStockWatchlist', JSON.stringify(watchlist)); }
+
+        async function refreshAll() {
+            updateMarketStatus();
+            if (watchlist.length === 0) return;
+            document.getElementById('hint').style.display = 'none';
+            for (let i = 0; i < watchlist.length; i++) {
+                await updateStock(watchlist[i]);
+                if (i < watchlist.length - 1) {
+                    const jitter = 500 + Math.floor(Math.random() * 700);
+                    await new Promise(r => setTimeout(r, jitter));
+                }
+            }
+            updateTotalPnL();
+        }
+
+        function toggleAutoRefresh() {
+            autoRefresh = !autoRefresh;
+            const btn = document.getElementById('autoBtn');
+            btn.textContent = autoRefresh ? '⏸' : '▶';
+            if (autoRefresh) startAutoRefresh(); else stopAutoRefresh();
+        }
+
+        function getRandomInterval() { return 15000 + Math.floor(Math.random() * 5000); }
+
+        function startAutoRefresh() {
+            stopAutoRefresh();
+            refreshAll();
+            refreshInterval = setTimeout(function loop() {
+                refreshAll();
+                refreshInterval = setTimeout(loop, getRandomInterval());
+            }, getRandomInterval());
+        }
+
+        function stopAutoRefresh() { if (refreshInterval) { clearTimeout(refreshInterval); refreshInterval = null; } }
+
+        document.getElementById('symbolInput').addEventListener('keypress', (e) => { if (e.key === 'Enter') addStock(); });
+
+        // ===== 持仓功能 =====
+        function updateHoldingPnL(symbol, currentPrice) {
+            const pnlEl = document.getElementById('pnl-' + symbol);
+            if (!pnlEl) return;
+            const h = holdings[symbol];
+            if (!h || !h.shares || !h.buyPrice) {
+                pnlEl.textContent = '';
+                pnlEl.className = 'holding-pnl';
+                return;
+            }
+            const pnlUSD = (currentPrice - h.buyPrice) * h.shares;
+            const pnlHKD = pnlUSD * hkdRate;
+            const pnlPct = ((currentPrice - h.buyPrice) / h.buyPrice) * 100;
+            const isUp = pnlUSD >= 0;
+            const sign = isUp ? '+' : '';
+            pnlEl.textContent = sign + 'HK$' + Math.abs(pnlHKD).toFixed(0) + ' (' + sign + pnlPct.toFixed(1) + '%)';
+            pnlEl.className = 'holding-pnl ' + (isUp ? 'up' : 'down');
+        }
+
+        function updateTotalPnL() {
+            let total = 0;
+            for (const symbol of watchlist) {
+                const h = holdings[symbol];
+                if (!h || !h.shares || !h.buyPrice) continue;
+                const priceText = document.querySelector('#card-' + symbol + ' .stock-price');
+                if (!priceText) continue;
+                const currentPrice = parseFloat(priceText.textContent);
+                if (isNaN(currentPrice)) continue;
+                total += (currentPrice - h.buyPrice) * h.shares * hkdRate;
+            }
+            const totalEl = document.getElementById('totalPnL');
+            if (totalEl) {
+                const isUp = total >= 0;
+                const sign = isUp ? '+' : '';
+                totalEl.textContent = '总盈亏：' + sign + 'HK$' + Math.abs(total).toFixed(0);
+                totalEl.className = 'total-pnl ' + (isUp ? 'up' : 'down');
+                totalEl.style.display = 'inline';
+            }
+        }
+
+        function openHoldings() {
+            document.getElementById('rateInput').value = hkdRate;
+            renderHoldingList();
+            document.getElementById('holdingModal').classList.add('active');
+        }
+
+        function closeHoldings(e) {
+            if (!e || e.target === document.getElementById('holdingModal')) {
+                document.getElementById('holdingModal').classList.remove('active');
+            }
+        }
+
+        function renderHoldingList() {
+            const container = document.getElementById('holdingList');
+            container.innerHTML = '';
+            const symbols = Object.keys(holdings);
+            if (symbols.length === 0) {
+                addHoldingRow();
+                return;
+            }
+            for (const sym of symbols) {
+                const h = holdings[sym];
+                const div = document.createElement('div');
+                div.className = 'holding-row';
+                div.innerHTML = `
+                    <input class="sym-input" placeholder="代码" value="${sym}" maxlength="10">
+                    <input class="num-input" placeholder="买入价(USD)" value="${h.buyPrice || ''}" type="number" step="0.01">
+                    <input class="num-input" placeholder="股数" value="${h.shares || ''}" type="number" step="1">
+                    <button class="btn-del" onclick="this.parentElement.remove()">×</button>
+                `;
+                container.appendChild(div);
+            }
+        }
+
+        function addHoldingRow() {
+            const container = document.getElementById('holdingList');
+            const div = document.createElement('div');
+            div.className = 'holding-row';
+            div.innerHTML = `
+                <input class="sym-input" placeholder="代码如 MU" maxlength="10">
+                <input class="num-input" placeholder="买入价(USD)" type="number" step="0.01">
+                <input class="num-input" placeholder="股数" type="number" step="1">
+                <button class="btn-del" onclick="this.parentElement.remove()">×</button>
+            `;
+            container.appendChild(div);
+        }
+
+        function saveHoldings() {
+            const rate = parseFloat(document.getElementById('rateInput').value);
+            if (!isNaN(rate) && rate > 0) {
+                hkdRate = rate;
+                localStorage.setItem('usStockRate', hkdRate);
+            }
+            const newHoldings = {};
+            const rows = document.querySelectorAll('.holding-row');
+            rows.forEach(row => {
+                const inputs = row.querySelectorAll('input');
+                const sym = inputs[0].value.trim().toUpperCase();
+                const buyPrice = parseFloat(inputs[1].value);
+                const shares = parseFloat(inputs[2].value);
+                if (sym && !isNaN(buyPrice) && buyPrice > 0 && !isNaN(shares) && shares > 0) {
+                    newHoldings[sym] = { buyPrice, shares };
+                }
+            });
+            holdings = newHoldings;
+            localStorage.setItem('usStockHoldings', JSON.stringify(holdings));
+            closeHoldings();
+            // 刷新所有盈亏显示
+            for (const symbol of watchlist) {
+                const priceEl = document.querySelector('#card-' + symbol + ' .stock-price');
+                if (priceEl) {
+                    const price = parseFloat(priceEl.textContent);
+                    if (!isNaN(price)) updateHoldingPnL(symbol, price);
+                }
+            }
+            updateTotalPnL();
+        }
+
+        updateMarketStatus();
+        if (watchlist.length > 0) {
+            document.getElementById('hint').style.display = 'none';
+            refreshAll().then(() => {
+                updateTotalPnL();
+            });
+            startAutoRefresh();
+        }
+    </script>
+</body>
+</html>
