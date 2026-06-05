@@ -310,8 +310,10 @@
     <div class="holding-modal" id="apiKeyModal" onclick="closeApiKeyModal(event)">
         <div class="holding-modal-content" onclick="event.stopPropagation()">
             <h3>🔑 API Key 设置 <button onclick="closeApiKeyModal()">×</button></h3>
-            <div class="rate-info">Alpha Vantage API Key（免费版 5次/分钟限制）</div>
-            <input type="text" id="apiKeyInput" placeholder="输入 Alpha Vantage API Key" style="width:100%;padding:4px 8px;border:1px solid #313244;border-radius:4px;background:#11111b;color:#cdd6f4;font-size:12px;margin-bottom:8px;">
+            <div class="rate-info" style="margin-bottom:4px"><strong>Finnhub</strong>（推荐，60次/分钟，实时数据）</div>
+            <input type="text" id="fhKeyInput" placeholder="输入 Finnhub API Key" style="width:100%;padding:4px 8px;border:1px solid #313244;border-radius:4px;background:#11111b;color:#cdd6f4;font-size:12px;margin-bottom:8px;">
+            <div class="rate-info" style="margin-bottom:4px"><strong>Alpha Vantage</strong>（备用，5次/分钟）</div>
+            <input type="text" id="avKeyInput" placeholder="输入 Alpha Vantage API Key（可选）" style="width:100%;padding:4px 8px;border:1px solid #313244;border-radius:4px;background:#11111b;color:#cdd6f4;font-size:12px;margin-bottom:8px;">
             <div class="rate-info" style="margin-bottom:8px">留空则使用 Yahoo Finance（无限制，但可能有盘后数据缺失）</div>
             <button class="btn-save" onclick="saveApiKey()">保存</button>
         </div>
@@ -328,6 +330,7 @@
         let holdings = JSON.parse(localStorage.getItem('usStockHoldings')) || {};
         let hkdRate = parseFloat(localStorage.getItem('usStockRate')) || 7.8;
         let avApiKey = localStorage.getItem('usStockAvApiKey') || '';
+        let fhApiKey = localStorage.getItem('usStockFhApiKey') || '';
 
         function formatAgo(ts) {
             if (!ts) return '从未';
@@ -378,7 +381,35 @@
         ];
 
         async function fetchQuote(symbol) {
-            // 如果设置了 Alpha Vantage API Key，优先使用
+            // 1. 优先使用 Finnhub（60次/分钟，实时数据）
+            if (fhApiKey) {
+                try {
+                    const fhUrl = 'https://finnhub.io/api/v1/quote?symbol=' + symbol + '&token=' + fhApiKey;
+                    const res = await fetch(fhUrl);
+                    const data = await res.json();
+                    if (data.c && data.c > 0) {
+                        const price = data.c;
+                        const prevClose = data.pc;
+                        const change = data.d || (price - prevClose);
+                        const changePct = data.dp || ((change / prevClose) * 100);
+                        return {
+                            symbol: symbol,
+                            name: symbol,
+                            price: price,
+                            prevClose: prevClose,
+                            change: change,
+                            changePct: changePct,
+                            high: data.h || price,
+                            low: data.l || price,
+                            volume: 0,
+                            proxy: false,
+                            series: null
+                        };
+                    }
+                } catch (e) {}
+            }
+            
+            // 2. 备用 Alpha Vantage（5次/分钟）
             if (avApiKey) {
                 try {
                     const avUrl = 'https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=' + symbol + '&apikey=' + avApiKey;
@@ -407,7 +438,7 @@
                 } catch (e) {}
             }
             
-            // 回退到 Yahoo Finance
+            // 3. 回退到 Yahoo Finance（无限制，图表数据）
             const yahooUrl = 'https://query1.finance.yahoo.com/v8/finance/chart/' + symbol + '?interval=1m&range=1d';
             async function tryFetch(url) {
                 const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
@@ -480,12 +511,17 @@
                     if (closes[i] !== null && closes[i] !== undefined) series.push({ t: timestamps[i] * 1000, p: closes[i] });
                 }
                 return {
-                    symbol: meta.symbol || symbol, name: meta.shortName || meta.longName || symbol,
-                    price: current, prevClose, change, changePct,
-                    regularPrice, regularChange, regularChangePct,
-                    postPrice, postChange, postChangePct, isPost,
-                    high: high || current, low: low || current,
-                    volume: meta.regularMarketVolume || 0, proxy: usedProxy, series
+                    symbol: meta.symbol || symbol,
+                    name: meta.shortName || meta.longName || symbol,
+                    price: current,
+                    prevClose: prevClose,
+                    change: change,
+                    changePct: changePct,
+                    high: high || current,
+                    low: low || current,
+                    volume: meta.regularMarketVolume || 0,
+                    proxy: usedProxy,
+                    series: series
                 };
             } catch (e) { return { symbol, error: e.message }; }
         }
@@ -725,7 +761,12 @@
             if (autoRefresh) startAutoRefresh(); else stopAutoRefresh();
         }
 
-        function getRandomInterval() { return 30000 + Math.floor(Math.random() * 10000); }
+        function getRandomInterval() {
+            // 如果只用 Finnhub，60次/分钟足够，用 15秒间隔
+            // 如果有 Alpha Vantage，限制 5次/分钟，用 30秒间隔
+            if (fhApiKey && !avApiKey) return 15000 + Math.floor(Math.random() * 5000);
+            return 30000 + Math.floor(Math.random() * 10000);
+        }
 
         function startAutoRefresh() {
             stopAutoRefresh();
@@ -747,9 +788,12 @@
         }
 
         function saveApiKey() {
-            const key = document.getElementById('apiKeyInput').value.trim();
-            avApiKey = key;
-            localStorage.setItem('usStockAvApiKey', key);
+            const fhKey = document.getElementById('fhKeyInput').value.trim();
+            const avKey = document.getElementById('avKeyInput').value.trim();
+            fhApiKey = fhKey;
+            avApiKey = avKey;
+            localStorage.setItem('usStockFhApiKey', fhKey);
+            localStorage.setItem('usStockAvApiKey', avKey);
             closeApiKeyModal();
             refreshAll();
         }
@@ -795,7 +839,8 @@
         }
 
         function openApiKeyModal() {
-            document.getElementById('apiKeyInput').value = avApiKey;
+            document.getElementById('fhKeyInput').value = fhApiKey;
+            document.getElementById('avKeyInput').value = avApiKey;
             document.getElementById('apiKeyModal').classList.add('active');
         }
 
