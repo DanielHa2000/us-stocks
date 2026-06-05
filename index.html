@@ -365,7 +365,7 @@
         ];
 
         async function fetchQuote(symbol) {
-            const yahooUrl = 'https://query1.finance.yahoo.com/v8/finance/chart/' + symbol + '?interval=1m&range=1d&includePrePost=true';
+            const yahooUrl = 'https://query1.finance.yahoo.com/v8/finance/chart/' + symbol + '?interval=1m&range=1d';
             async function tryFetch(url) {
                 const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
                 if (!res.ok) throw new Error('HTTP ' + res.status);
@@ -392,15 +392,35 @@
                 const regularChange = regularPrice - prevClose;
                 const regularChangePct = (regularChange / prevClose) * 100;
                 
-                // 盘后数据
-                const postPrice = meta.postMarketPrice;
-                const postChange = meta.postMarketChange;
-                const postChangePct = meta.postMarketChangePercent;
-                const hasPostData = postPrice !== null && postPrice !== undefined && postPrice !== 0;
+                // 尝试获取盘后数据（1m 不支持 includePrePost，meta 中可能有 postMarketPrice）
+                let postPrice = meta.postMarketPrice;
+                let postChange = meta.postMarketChange;
+                let postChangePct = meta.postMarketChangePercent;
                 
-                // 根据市场状态选择价格
+                // 如果 meta 中没有盘后数据，且当前是盘后时段，尝试额外请求
                 const marketStatus = getMarketStatus();
                 const isPostMarket = marketStatus.text === '盘后' || marketStatus.text === '已收盘';
+                if (isPostMarket && (!postPrice || postPrice === 0)) {
+                    try {
+                        const postUrl = 'https://query1.finance.yahoo.com/v8/finance/chart/' + symbol + '?interval=1d&range=1d&includePrePost=true';
+                        let postData = null;
+                        try { postData = await tryFetch(postUrl); }
+                        catch (e) {
+                            for (const proxyFn of PROXIES) {
+                                try { postData = await tryFetch(proxyFn(postUrl)); break; }
+                                catch (e2) {}
+                            }
+                        }
+                        if (postData && postData.chart && postData.chart.result && postData.chart.result[0]) {
+                            const postMeta = postData.chart.result[0].meta;
+                            if (postMeta.postMarketPrice) postPrice = postMeta.postMarketPrice;
+                            if (postMeta.postMarketChange) postChange = postMeta.postMarketChange;
+                            if (postMeta.postMarketChangePercent) postChangePct = postMeta.postMarketChangePercent;
+                        }
+                    } catch (e) {}
+                }
+                
+                const hasPostData = postPrice != null && postPrice > 0;
                 const current = (isPostMarket && hasPostData) ? postPrice : regularPrice;
                 const change = (isPostMarket && hasPostData) ? postChange : regularChange;
                 const changePct = (isPostMarket && hasPostData) ? postChangePct : regularChangePct;
